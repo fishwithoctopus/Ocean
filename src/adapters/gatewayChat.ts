@@ -6,7 +6,8 @@ export class GatewayChatAdapter implements ChatAdapter {
   constructor(private readonly baseUrl?: string) {}
   async *streamReply(input: string, context: ChatContext): AsyncIterable<ChatStreamEvent> {
     const baseUrl = this.baseUrl ?? getGatewayBaseUrl();
-    const response = await fetch(`${baseUrl}/v1/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input, context, messages: context.messages, attachments: context.attachments, providerId: context.providerId, modelId: context.modelId, settings: context.settings }) });
+    const attachments = context.attachments?.map(({ previewDataUrl: _previewDataUrl, ...attachment }) => attachment);
+    const response = await fetch(`${baseUrl}/v1/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input, context, messages: context.messages, attachments, providerId: context.providerId, modelId: context.modelId, settings: context.settings }) });
     if (!response.ok || !response.body) throw new Error(`Gateway stream failed: ${response.status}`);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
     while (true) {

@@ -190,12 +190,36 @@ async function fileToAttachment(file: File): Promise<ChatAttachment> {
       reader.onerror = () => reject(new Error("图片读取失败"));
       reader.readAsDataURL(file);
     });
-    return { id, kind: "image", name: file.name || "相机照片", mimeType: file.type || "image/jpeg", size: file.size, data };
+    const previewDataUrl = await createImagePreview(data);
+    return { id, kind: "image", name: file.name || "相机照片", mimeType: file.type || "image/jpeg", size: file.size, data, previewDataUrl };
   }
   const textLike = file.type.startsWith("text/") || /\.(txt|md|markdown|json|csv)$/i.test(file.name);
   if (!textLike) throw new Error("文件附件目前先支持 TXT、Markdown、JSON 与 CSV");
   if (file.size > 1_000_000) throw new Error("文本附件暂时不能超过 1 MB");
   return { id, kind: "text", name: file.name, mimeType: file.type || "text/plain", size: file.size, data: await file.text() };
+}
+
+async function createImagePreview(dataUrl: string) {
+  if (dataUrl.length <= 650_000) return dataUrl;
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const node = new Image();
+    node.onload = () => resolve(node);
+    node.onerror = () => reject(new Error("图片预览生成失败"));
+    node.src = dataUrl;
+  });
+  const maxEdge = 1_280;
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("图片预览生成失败");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.82);
 }
 
 export function RoomChatChrome({

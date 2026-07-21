@@ -32,6 +32,7 @@ export interface ContinuityStorageStatus extends Record<string, unknown> {
 export interface ContinuityResult extends Omit<StoredContinuity, "updatedAt" | "lastForgeMessageId"> {
   storage: ContinuityStorageStatus;
   forged: boolean;
+  warning?: "provider-summary-failed";
 }
 
 function positiveInteger(value: string | undefined, fallback: number) {
@@ -187,7 +188,21 @@ export class ContinuityService {
     const recent = selectRecentMessages(messages, this.recentTurns * 2, Math.max(1, Math.floor(safeThresholdUnits * .6)));
     const older = messages.slice(0, Math.max(0, messages.length - recent.length));
     let summary: string | null = null;
-    try { summary = await providerSummary(this.providers, older.length ? older : messages, current.summary); } catch { summary = null; }
+    let summaryProviderFailed = false;
+    try { summary = await providerSummary(this.providers, older.length ? older : messages, current.summary); }
+    catch (error) {
+      summary = null;
+      summaryProviderFailed = true;
+      console.warn(JSON.stringify({
+        event: "ocean_continuity_summary",
+        at: new Date().toISOString(),
+        status: "provider_failed_deterministic_fallback",
+        logicalConversationId,
+        providerId: process.env.OCEAN_FORGE_SUMMARY_PROVIDER?.trim() || null,
+        modelId: process.env.OCEAN_FORGE_SUMMARY_MODEL?.trim() || null,
+        error: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+      }));
+    }
     const nextGeneration = generation + 1;
     const handoff = "自然续接当前话题，不向用户宣布内部换窗；摘要只作为连续性背景，最近二十轮原文优先于摘要。";
     const next: Omit<StoredContinuity, "updatedAt"> = {
@@ -203,6 +218,6 @@ export class ContinuityService {
     };
     const after = storageStatus(recent, { ...next, recentTurnIds: [] }, this.thresholdUnits, this.reserveUnits);
     await this.store.saveContinuity({ ...next, storage: after });
-    return { ...next, storage: after, forged: true };
+    return { ...next, storage: after, forged: true, ...(summaryProviderFailed ? { warning: "provider-summary-failed" as const } : {}) };
   }
 }

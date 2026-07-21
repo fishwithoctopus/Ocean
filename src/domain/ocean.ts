@@ -10,8 +10,18 @@ export interface MessageTurn {
   role: MessageRole;
   createdAt: string;
   segments: string[];
+  attachments?: MessageAttachment[];
   reasoning?: ReasoningSummary;
   source?: "chat" | "free-time";
+}
+
+export interface MessageAttachment {
+  id: string;
+  kind: "image";
+  name: string;
+  mimeType: string;
+  size: number;
+  previewDataUrl: string;
 }
 
 export interface ChatAttachment {
@@ -21,6 +31,7 @@ export interface ChatAttachment {
   mimeType: string;
   size: number;
   data: string;
+  previewDataUrl?: string;
 }
 
 export interface ChatContext {
@@ -95,6 +106,7 @@ export interface ContinuitySnapshot {
   recentTurnIds: string[];
   forgedAt?: string;
   source?: "local-fallback" | "gateway-deterministic" | "gateway-staging" | "provider";
+  warning?: "provider-summary-failed";
   forged?: boolean;
   storage?: {
     usedUnits: number;

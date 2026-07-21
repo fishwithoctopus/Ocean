@@ -1,9 +1,22 @@
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { mergeReasoningDetails, OpenAICompatibleAdapter } from "./openaiCompatible.js";
+import { openAIChatMessages } from "./streaming.js";
 import type { GatewayStreamEvent, ProviderDefinition } from "./types.js";
 
 const bodies: Array<Record<string, any>> = [];
+
+const visualMessages = openAIChatMessages({
+  input: "describe the image",
+  attachments: [{ kind: "image", name: "fixture.png", mimeType: "image/png", size: 3, data: "data:image/png;base64,AAA=" }],
+}, "fixture system");
+const visualContent = visualMessages.at(-1)?.content;
+if (!Array.isArray(visualContent)
+  || visualContent[0]?.type !== "text"
+  || visualContent[1]?.type !== "image_url"
+  || visualContent[1]?.image_url?.url !== "data:image/png;base64,AAA=") {
+  throw new Error("Visual attachment was not forwarded as a direct image input");
+}
 
 const mergedReasoning: unknown[] = [];
 mergeReasoningDetails(mergedReasoning, [{

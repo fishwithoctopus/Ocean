@@ -23,6 +23,26 @@ function persistState<T>(key: string, value: T) {
   window.dispatchEvent(new CustomEvent("ocean:persist", { detail: { key, value } }));
 }
 
+function describeElapsedSinceLastUserTurn(messages: MessageTurn[]) {
+  const previousUser = [...messages].reverse().find((turn) => turn.role === "user");
+  if (!previousUser) return "首次对话";
+  const elapsedMilliseconds = Date.now() - new Date(previousUser.createdAt).getTime();
+  if (!Number.isFinite(elapsedMilliseconds) || elapsedMilliseconds < 90_000) return "刚刚";
+  const minutes = Math.max(1, Math.round(elapsedMilliseconds / 60_000));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} 小时`;
+  return `${Math.round(hours / 24)} 天`;
+}
+
+function messageContentForProvider(turn: MessageTurn, currentTurnId: string) {
+  const content = turn.segments.join("\n\n");
+  const imageNames = turn.attachments?.filter((attachment) => attachment.kind === "image").map((attachment) => attachment.name) ?? [];
+  if (!imageNames.length || turn.id === currentTurnId) return content;
+  const attachmentRecord = `[Ocean attachment record: this earlier user turn included ${imageNames.length} image attachment(s): ${imageNames.join(", ")}. The image pixels are not replayed in this request. Rely on the prior conversation about the image and do not claim to inspect it again now.]`;
+  return `${attachmentRecord}\n\n${content}`;
+}
+
 export interface LivingRoomDeliveryOptions {
   attachments?: ChatAttachment[];
   continuity?: ContinuitySnapshot;
@@ -49,7 +69,13 @@ export async function deliverToLivingRoom(input: string, options: LivingRoomDeli
   const currentMessages = options.messages ?? readState<MessageTurn[]>(LIVING_MESSAGES_KEY, []);
   const currentContinuity = options.continuity ?? readState<ContinuitySnapshot>(LIVING_CONTINUITY_KEY, INITIAL_CONTINUITY);
   const createdAt = new Date().toISOString();
-  const userTurn: MessageTurn = { id: crypto.randomUUID(), role: "user", createdAt, segments: [value], source: "chat" };
+  const messageAttachments = (options.attachments ?? []).flatMap((attachment) => {
+    if (attachment.kind !== "image") return [];
+    const previewDataUrl = attachment.previewDataUrl ?? (attachment.data.length <= 650_000 ? attachment.data : "");
+    if (!previewDataUrl) return [];
+    return [{ id: attachment.id, kind: "image" as const, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, previewDataUrl }];
+  });
+  const userTurn: MessageTurn = { id: crypto.randomUUID(), role: "user", createdAt, segments: [value], attachments: messageAttachments.length ? messageAttachments : undefined, source: "chat" };
   const replyId = crypto.randomUUID();
   const reply: MessageTurn = { id: replyId, role: "assistant", createdAt, segments: [], source: "chat" };
   let nextMessages = [...currentMessages, userTurn, reply];
@@ -64,14 +90,14 @@ export async function deliverToLivingRoom(input: string, options: LivingRoomDeli
   const adapter = live ? gatewayChatAdapter : mockChatAdapter;
   const selection = getModelSelection();
   const history = messagesForPhysicalSession([...currentMessages, userTurn], currentContinuity)
-    .map((turn) => ({ role: turn.role, content: turn.segments.join("\n\n") }));
+    .map((turn) => ({ role: turn.role, content: messageContentForProvider(turn, userTurn.id) }));
   let error: string | undefined;
 
   try {
     for await (const event of adapter.streamReply(value, {
       mode: "living-room",
       nightTalk: options.nightTalk ?? false,
-      elapsedSinceLastTurn: options.elapsedSinceLastTurn ?? "刚刚",
+      elapsedSinceLastTurn: options.elapsedSinceLastTurn ?? describeElapsedSinceLastUserTurn(currentMessages),
       messages: history,
       attachments: options.attachments ?? [],
       providerId: selection?.providerId,

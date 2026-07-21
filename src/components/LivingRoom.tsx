@@ -10,6 +10,8 @@ import { ConversationBubble } from "./ConversationBubble";
 import { MessageActions } from "./MessageActions";
 import { assetPath } from "../utils/assetPath";
 import { deliverToLivingRoom } from "../services/livingRoomConversation";
+import { ChatImageViewer } from "./ChatImageViewer";
+import type { MessageAttachment } from "../domain/ocean";
 
 interface LivingRoomProps {
   isNight: boolean;
@@ -30,6 +32,7 @@ export function LivingRoom({ isNight, onNightChange }: LivingRoomProps) {
   const [nightTalk, setNightTalk] = usePersistentState("ocean:living:night-talk", false);
   const [streaming, setStreaming] = useState(false);
   const [memoryNotice, setMemoryNotice] = useState("");
+  const [viewingImage, setViewingImage] = useState<MessageAttachment | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,13 +67,16 @@ export function LivingRoom({ isNight, onNightChange }: LivingRoomProps) {
     const delivered = await deliverToLivingRoom(value, {
       attachments,
       continuity,
-      elapsedSinceLastTurn: "3 小时",
       messages: baseMessages,
       nightTalk,
       onContinuity: setContinuity,
       onMessages: setMessages,
     });
-    if (delivered.continuity.forged) setMemoryNotice("会话空间已无感续接");
+    if (delivered.continuity.forged) {
+      setMemoryNotice(delivered.continuity.warning === "provider-summary-failed"
+        ? "会话已续接；摘要服务暂时未响应，已使用本地摘要"
+        : "会话空间已无感续接");
+    }
     if (!delivered.live && /记住|记下来|存进|存入|保存到|写进/.test(value)) {
       await stagedMemoryAdapter.saveCandidate(value, "living:explicit");
       setMemoryNotice("已加入本地记忆候选，联网后同步");
@@ -125,6 +131,13 @@ export function LivingRoom({ isNight, onNightChange }: LivingRoomProps) {
           <div className={`living-turn-block role-${turn.role}`} key={turn.id}>
             {turnIndex === 2 && <div className="living-time-divider"><span>14:30</span></div>}
             <div className={`living-turn ${turn.role}`}>
+              {turn.attachments?.length ? <div className="living-message-images">
+                {turn.attachments.map((attachment) => (
+                  <button aria-label={`放大查看 ${attachment.name}`} key={attachment.id} onClick={() => setViewingImage(attachment)}>
+                    <img alt={attachment.name} src={attachment.previewDataUrl} />
+                  </button>
+                ))}
+              </div> : null}
               {turn.segments.map((segment, index) => (
                 <ConversationBubble className="living-message-bubble" key={`${turn.id}-${index}`}>{segment}</ConversationBubble>
               ))}
@@ -153,6 +166,7 @@ export function LivingRoom({ isNight, onNightChange }: LivingRoomProps) {
         sendDisabled={!input.trim() || streaming}
         storageRemainingPercent={continuity.storage?.percentRemaining}
       />
+      <ChatImageViewer attachment={viewingImage} onClose={() => setViewingImage(null)} />
     </section>
   );
 }

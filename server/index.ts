@@ -233,7 +233,7 @@ async function streamChat(request: IncomingMessage, response: ServerResponse, pr
     context: {
       mode: typeof rawContext.mode === "string" ? rawContext.mode : undefined,
       nightTalk: rawContext.nightTalk === true,
-      elapsedSinceLastTurn: typeof rawContext.elapsedSinceLastTurn === "string" ? rawContext.elapsedSinceLastTurn : undefined,
+      elapsedSinceLastTurn: typeof rawContext.elapsedSinceLastTurn === "string" ? rawContext.elapsedSinceLastTurn.slice(0, 80) : undefined,
       continuitySummary: typeof rawContext.continuitySummary === "string" ? rawContext.continuitySummary : undefined,
       continuityHandoff: typeof rawContext.continuityHandoff === "string" ? rawContext.continuityHandoff : undefined,
       physicalSessionId: typeof rawContext.physicalSessionId === "string" ? rawContext.physicalSessionId : undefined,
@@ -292,6 +292,10 @@ async function streamChat(request: IncomingMessage, response: ServerResponse, pr
     physicalSessionId: chatRequest.context?.physicalSessionId,
     memoryRecall: chatRequest.context?.memoryRecall,
     memoryPolicy: memoryPlan,
+    attachmentCount: chatRequest.attachments?.length ?? 0,
+    imageAttachmentCount: chatRequest.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
+    attachmentBytes: chatRequest.attachments?.reduce((sum, attachment) => sum + attachment.size, 0) ?? 0,
+    attachmentMimeTypes: [...new Set(chatRequest.attachments?.map((attachment) => attachment.mimeType) ?? [])],
   };
   console.info(JSON.stringify(trace));
   response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*" });
