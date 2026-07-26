@@ -4,6 +4,17 @@ Ocean is a noncommercial source-available, self-hosted, provider-neutral PWA for
 
 The public repository contains no API keys, private connector tokens, personal memory database, poems, countdowns, Todos, or relationship history. Fresh installations start with empty user content.
 
+> [!IMPORTANT]
+> **DeepSeek V4 compatibility (2026-07-26):** DeepSeek retired the legacy API names
+> `deepseek-chat` and `deepseek-reasoner` on 2026-07-24 15:59 UTC. Older
+> Ocean Memory 3.0 deployments can therefore stop producing daily
+> impressions, portraits, enrichment, and downstream Ocean paper notes. The
+> current `fishwithoctopus/Ombre-Ocean-Memory` defaults use V4 model names.
+> Existing deployments should apply the compatibility patch **only** when they
+> use the official DeepSeek API and still report a legacy model or the
+> documented HTTP 400 error. See the
+> [Ocean Memory 3.0 migration and rollback guide](https://github.com/fishwithoctopus/Ombre-Ocean-Memory/blob/main/docs/DEEPSEEK_V4_MIGRATION.md).
+
 ## What is included
 
 - Installable mobile PWA with day/night themes and reusable color tokens.
@@ -78,7 +89,16 @@ Start with one inexpensive provider, verify streaming and Usage, then add furthe
 
 ## Memory 3.0
 
-Ocean integrates with Memory 3.0 over Streamable HTTP MCP. The compatible public implementation is [Yinglianchun/Ombre-Brain](https://github.com/Yinglianchun/Ombre-Brain), based on [P0luz/Ombre-Brain](https://github.com/P0luz/Ombre-Brain).
+Ocean integrates with Memory 3.0 over Streamable HTTP MCP. Its separately
+published companion implementation is
+[fishwithoctopus/Ombre-Ocean-Memory](https://github.com/fishwithoctopus/Ombre-Ocean-Memory),
+derived from [Yinglianchun/Ombre-Brain](https://github.com/Yinglianchun/Ombre-Brain)
+and [P0luz/Ombre-Brain](https://github.com/P0luz/Ombre-Brain).
+
+The Ocean repository does not embed or redistribute the Ombre-Brain backend.
+Memory 3.0 is a separately deployed service connected through the replaceable
+server-side adapter. A production deployment may use a private customized fork
+while keeping the same MCP boundary.
 
 Deploy the memory service independently with persistent storage, then configure:
 
