@@ -345,7 +345,7 @@ async function runFreeTime(store: JsonStore, providers: ProviderRegistry, fishin
     return store.saveFreeTimeRun({ status: "skipped", reason: eligibility.reason, prompt: "", connectorRefs: [], enabledActions: 0, availableGames: 0 });
   }
 
-  const preview = buildFreeTimePrompt(config, input.now);
+  const preview = buildFreeTimePrompt(config, input.now, process.env.OCEAN_TIME_ZONE?.trim() || "Asia/Shanghai");
   const internalModelConfigured = Boolean(process.env.FREE_TIME_PROVIDER_ID?.trim());
   const automaticModelEnabled = process.env.FREE_TIME_AUTO_DISPATCH === "enabled";
   if (internalModelConfigured && (input.manual || automaticModelEnabled)) {
@@ -769,7 +769,7 @@ export async function createOceanGateway(dataPath?: string) {
       if (request.method === "POST" && url.pathname === "/v1/free-time/preview") {
         const input = await body(request);
         const config = normalizeFreeTimeConfig(input.config ?? store.getFreeTime() ?? DEFAULT_FREE_TIME_CONFIG);
-        return sendJson(response, 200, buildFreeTimePrompt(config));
+        return sendJson(response, 200, buildFreeTimePrompt(config, new Date(), process.env.OCEAN_TIME_ZONE?.trim() || "Asia/Shanghai"));
       }
       if (request.method === "GET" && url.pathname === "/v1/free-time/runs") return sendJson(response, 200, store.listFreeTimeRuns());
       const freeTimeOutcomeMatch = url.pathname.match(/^\/v1\/free-time\/runs\/([^/]+)\/outcome$/);

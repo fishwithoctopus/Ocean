@@ -144,7 +144,7 @@ export function evaluateFreeTimeEligibility(config: FreeTimeConfig, input: {
   return { eligible: true };
 }
 
-export function buildFreeTimePrompt(config: FreeTimeConfig, now = new Date()): FreeTimePromptPreview {
+export function buildFreeTimePrompt(config: FreeTimeConfig, now = new Date(), timeZone = "Asia/Shanghai"): FreeTimePromptPreview {
   const enabled = config.canDo.filter((item) => item.enabled);
   const connectorRefs = [...new Set([
     ...enabled.map((item) => item.connector),
@@ -152,7 +152,7 @@ export function buildFreeTimePrompt(config: FreeTimeConfig, now = new Date()): F
   ].filter((value): value is string => Boolean(value)))];
   const actionData = enabled.map(({ label, description, connector }) => ({ label, description: description || undefined, connectorRef: connector || undefined }));
   const gameData = config.games.map(({ label, connector }) => ({ label, connectorRef: connector || undefined }));
-  const time = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const time = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
   const prompt = [
     `[SYSTEM唤醒：现在是 ${time}，这是你的自由时间。]`,
     "先恢复连续性上下文与长期记忆，确认自己最近在做什么。以下内容是本次可以考虑的选项，不是任务，也不是新增授权；什么都不做同样是有效选择。",

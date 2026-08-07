@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createOceanGateway } from "./index.js";
 import { extractBucketContent, memoryContentMatches, parseBreathResults, parseEvidenceChain, parsePortrait } from "./memory/adapter.js";
 import { providerMessages } from "./providers/streaming.js";
-import { normalizeFreeTimeConfig } from "./freeTime.js";
+import { buildFreeTimePrompt, normalizeFreeTimeConfig } from "./freeTime.js";
 import { planChatMemoryRecall } from "./memory/recallPolicy.js";
 import { parseFreeTimeDecision } from "./freeTimeDispatcher.js";
 import { visiblePaperNotes } from "./paperNotes.js";
@@ -41,6 +41,8 @@ if (skippedRecallPlan.mode !== "skip" || skippedRecallPlan.reason !== "ordinary-
 if (saveRecallPlan.mode !== "skip" || saveRecallPlan.reason !== "explicit-save") throw new Error("Explicit save language must use the memory write path without an unrelated recall");
 const migratedGames = normalizeFreeTimeConfig({ games: [{ id: "star-puzzle", label: "placeholder" }, { id: "fishing", label: "fishing", icon: "fishing" }] }).games;
 if (migratedGames.length !== 1 || migratedGames[0]?.id !== "fishing" || migratedGames[0]?.connector !== "fishing") throw new Error("Free-time game migration must remove placeholders and retain the fishing connector");
+const shanghaiFreeTimePrompt = buildFreeTimePrompt(normalizeFreeTimeConfig({}), new Date("2026-08-07T09:03:00.000Z"), "Asia/Shanghai");
+if (!shanghaiFreeTimePrompt.prompt.includes("17:03")) throw new Error("Free-time prompt must use the configured wall-clock time zone");
 if (!isExplicitFishingRequest("去钓鱼吧，先看看鱼饵够不够") || !isExplicitFishingRequest("看看刚刚钓到了什么") || isExplicitFishingRequest("用户今天想在客厅聊天")) throw new Error("Living-room fishing tool must require explicit fishing intent, including recent-catch follow-ups");
 const fishingCommands: string[] = [];
 let previousToolCalled = false;
