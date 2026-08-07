@@ -29,6 +29,7 @@ export class GatewaySchedulerAdapter implements SchedulerAdapter {
   }
 
   getConfig() { return this.client.getFreeTimeConfig(); }
+  getCapabilities() { return this.client.capabilities(); }
   updateConfig(config: FreeTimeConfig) { return this.client.saveFreeTimeConfig(config); }
   previewPrompt(config?: FreeTimeConfig) { return this.client.previewFreeTimePrompt(config); }
   triggerNow() { return this.client.triggerFreeTime(); }

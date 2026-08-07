@@ -24,6 +24,14 @@ export interface OceanNotionSyncResult { projectId: string; projectPageId: strin
 export interface OceanPaperNote { id: string; slot: "morning" | "noon" | "evening" | "night"; time: string; text: string; visibleAt: string }
 export interface OceanPaperNoteResponse { date: string; sourceDate?: string; sourceImpressionId?: string; generatedAt?: string; notes: OceanPaperNote[] }
 export interface OpenRouterBalance { providerId: "openrouter"; currency: "USD"; totalCredits: number; totalUsage: number; remaining: number; fetchedAt: string }
+export interface GatewayCapabilities {
+  scheduler?: {
+    persistent: boolean;
+    automaticDispatch: boolean;
+    providerId?: string | null;
+    modelId?: string | null;
+  };
+}
 
 export class OceanGatewayError extends Error {
   constructor(public readonly status: number, message: string) { super(message); }
@@ -41,6 +49,7 @@ export class OceanGatewayClient {
   login(password: string) { return this.json<{ authenticated: true; expiresAt?: string }>("/v1/auth/login", { method: "POST", body: JSON.stringify({ password }) }); }
   logout() { return this.json<{ authenticated: false }>("/v1/auth/logout", { method: "POST", body: "{}" }); }
   integrations(signal?: AbortSignal) { return this.json<IntegrationManifest>("/v1/integrations", { signal }); }
+  capabilities(signal?: AbortSignal) { return this.json<GatewayCapabilities>("/v1/capabilities", { signal }); }
   listProviders(signal?: AbortSignal) { return this.json<ProviderSummary[]>("/v1/providers", { signal }); }
   openRouterBalance(signal?: AbortSignal) { return this.json<OpenRouterBalance>("/v1/providers/openrouter/balance", { signal }); }
   listModels(signal?: AbortSignal, includeUnconfigured = false) { return this.json<ModelOption[]>(`/v1/models${includeUnconfigured ? "?all=true" : ""}`, { signal }); }

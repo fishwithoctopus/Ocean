@@ -64,24 +64,32 @@ export function LivingRoom({ isNight, onNightChange }: LivingRoomProps) {
     if (!value || streaming) return;
     setStreaming(true);
     setMemoryNotice("");
-    const delivered = await deliverToLivingRoom(value, {
-      attachments,
-      continuity,
-      messages: baseMessages,
-      nightTalk,
-      onContinuity: setContinuity,
-      onMessages: setMessages,
-    });
-    if (delivered.continuity.forged) {
-      setMemoryNotice(delivered.continuity.warning === "provider-summary-failed"
-        ? "会话已续接；摘要服务暂时未响应，已使用本地摘要"
-        : "会话空间已无感续接");
+    let responseSettled = false;
+    try {
+      const delivered = await deliverToLivingRoom(value, {
+        attachments,
+        continuity,
+        messages: baseMessages,
+        nightTalk,
+        onContinuity: setContinuity,
+        onMessages: setMessages,
+        onResponseSettled: () => {
+          responseSettled = true;
+          setStreaming(false);
+        },
+      });
+      if (delivered.continuity.forged) {
+        setMemoryNotice(delivered.continuity.warning === "provider-summary-failed"
+          ? "会话已续接；摘要服务暂时未响应，已使用本地摘要"
+          : "会话空间已无感续接");
+      }
+      if (!delivered.live && /记住|记下来|存进|存入|保存到|写进/.test(value)) {
+        await stagedMemoryAdapter.saveCandidate(value, "living:explicit");
+        setMemoryNotice("已加入本地记忆候选，联网后同步");
+      }
+    } finally {
+      if (!responseSettled) setStreaming(false);
     }
-    if (!delivered.live && /记住|记下来|存进|存入|保存到|写进/.test(value)) {
-      await stagedMemoryAdapter.saveCandidate(value, "living:explicit");
-      setMemoryNotice("已加入本地记忆候选，联网后同步");
-    }
-    setStreaming(false);
   };
 
   const send = async (attachments: ChatAttachment[] = []) => {

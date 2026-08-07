@@ -625,7 +625,21 @@ export function RoomChatChrome({
 
       <div className="living-composer">
         <button className="living-composer-more" aria-label="更多输入选项" onClick={() => togglePanel("attachments")}><img src={livingAsset("composer-plus.svg")} alt="" /></button>
-        <textarea aria-label="输入消息" placeholder={nightTalk ? "夜谈氛围已开启…" : inputPlaceholder} rows={1} value={input} onChange={(event) => onInputChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} />
+        <textarea
+          aria-label="输入消息"
+          placeholder={nightTalk ? "夜谈氛围已开启…" : inputPlaceholder}
+          rows={1}
+          value={input}
+          onChange={(event) => onInputChange(event.target.value)}
+          onCompositionEnd={(event) => onInputChange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
         <button aria-label="发送" className="living-send-button" disabled={sendDisabled} onClick={submit}><img src={livingAsset("composer-send.svg")} alt="" /></button>
       </div>
 

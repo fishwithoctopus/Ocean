@@ -144,6 +144,7 @@ export function LeisureRoom() {
   const [gameSettling, setGameSettling] = useState(false);
   const [schedulerState, setSchedulerState] = useState<"syncing" | "synced" | "offline">("syncing");
   const [triggerState, setTriggerState] = useState<"idle" | "running" | "success" | "error">("idle");
+  const [automaticDispatch, setAutomaticDispatch] = useState<boolean | null>(null);
   const [recentRuns, setRecentRuns] = useState<FreeTimeRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<FreeTimeRun | null>(null);
   const [clock, setClock] = useState(() => new Date());
@@ -188,9 +189,16 @@ export function LeisureRoom() {
     let active = true;
     const refresh = () => {
       setClock(new Date());
-      void gatewaySchedulerAdapter.listRuns()
-        .then((runs) => { if (active) setRecentRuns(runs); })
-        .catch(() => { if (active) setRecentRuns([]); });
+      void Promise.allSettled([
+        gatewaySchedulerAdapter.listRuns(),
+        gatewaySchedulerAdapter.getCapabilities(),
+      ]).then(([runs, capabilities]) => {
+        if (!active) return;
+        setRecentRuns(runs.status === "fulfilled" ? runs.value : []);
+        setAutomaticDispatch(capabilities.status === "fulfilled"
+          ? capabilities.value.scheduler?.automaticDispatch ?? null
+          : null);
+      });
     };
     refresh();
     const timer = window.setInterval(refresh, 60_000);
@@ -417,13 +425,13 @@ export function LeisureRoom() {
         ))}
         <button
           aria-live="polite"
-          className={`leisure-trigger ${triggerState}`}
+          className={`leisure-trigger ${triggerState} ${automaticDispatch === false ? "automatic-disabled" : ""}`}
           disabled={triggerState === "running"}
           onClick={() => void triggerFreeTimeNow()}
           title="忽略静默、冷却与概率限制，立即运行一次自由时间"
           type="button"
         >
-          {triggerState === "running" ? "正在活动…" : triggerState === "success" ? "已完成" : triggerState === "error" ? "触发失败" : "立即触发"}
+          {triggerState === "running" ? "正在活动…" : triggerState === "success" ? "已完成" : triggerState === "error" ? "触发失败" : automaticDispatch === false ? "手动触发 · 自动未开" : "立即触发"}
         </button>
       </section>
 

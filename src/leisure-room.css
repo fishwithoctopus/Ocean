@@ -345,6 +345,7 @@
 .leisure-trigger.running { color: var(--accent); }
 .leisure-trigger.success { background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface)); }
 .leisure-trigger.error { color: var(--warm); }
+.leisure-trigger.automatic-disabled { letter-spacing: 1px; }
 .leisure-trigger:disabled { cursor: wait; opacity: .82; }
 
 .leisure-inline-editor {

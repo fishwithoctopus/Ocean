@@ -336,6 +336,7 @@ async function runFreeTime(store: JsonStore, providers: ProviderRegistry, fishin
   const eligibility = evaluateFreeTimeEligibility(config, {
     now: input.now,
     manual: input.manual,
+    timeZone: process.env.OCEAN_TIME_ZONE?.trim() || "Asia/Shanghai",
     lastUserActivityAt: lastActivity ? new Date(lastActivity) : undefined,
     lastRunAt: lastRun ? new Date(lastRun.createdAt) : undefined,
   });

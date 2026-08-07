@@ -14,6 +14,7 @@
 - Figma source: file `Zbaw4uQ9SXIFjVzl1lI50f`, node `2:2`.
 - Fidelity pass: complete for the default state.
 - Intentional interaction update: Todo minutes use one-minute `00-59` granularity. The shared date/time wheel keeps the measured five-row visual geometry while a native scroll-snap layer supplies touch inertia and center settling. Its cyclic logical track is virtualized to 17 nearby snap points per column, and haptics are intentionally omitted for consistent PWA behavior.
+- Todo date and time remain independently enabled and are saved together. Switching the visible editor remounts the wheel surface so unfinished touch momentum from the previous date/time wheel cannot continue inside the newly opened wheel.
 - Verified anchors: header `0–94`, content `94–760`, bottom navigation `760–844`.
 - Installed iOS PWA mode paints the active theme canvas and wallpaper beneath the translucent native status bar. The calibrated Figma header already contains the intended status-bar whitespace, so standalone mode must not add another top inset or move the measured content downward.
 - Verified modules: wordmark, calendar, countdown cards, To-Do, From note stack, relationship status, bottom room navigation.
@@ -91,6 +92,7 @@
 ### Shared chat-state refinements
 
 - The access/loading status line uses the same three-dot pulse component on both sides of its live status copy. Ellipsis characters are not embedded in the copy, so both visual groups animate and reduced-motion mode can disable them consistently without changing the line's geometry.
+- The send button is disabled only for an empty draft or while the model response stream is active. It unlocks on the stream's `done` event; continuity forging and durable conversation sync finish afterward without extending the visible sending lock.
 - Dynamic model labels may wrap to two lines. The shared model trigger and its expanded-panel anchor grow upward from a fixed bottom baseline, so longer names gain breathing room without moving the composer or adjacent controls.
 - Meeting keeps the calibrated project-mode shell and avatar geometry. Its participant panel now derives only Kimi K3, GPT 5.6, Sonnet 4.6 and Opus 4.6 from the live Gateway registry; GPT participates and Opus hosts by default when both are available. A round streams each participant's final answer in order and then the host's visible synthesis, while a failed provider becomes one explicit skipped bubble without moving or replacing the existing controls.
 - Meeting bubbles use a bottom-anchored flex stack rather than screenshot coordinates. Bubble copy wraps naturally; consecutive turns from one participant use `6px`, while participant changes use `12px`, matching the shared conversation rhythm without overflowing the mobile canvas.
@@ -99,6 +101,7 @@
 - The Thinking bubbles are a live reasoning-state indicator, not permanent decoration. They appear only when the newest assistant turn contains a provider reasoning summary; historical reasoning does not keep the indicator visible, and mock Project/Reading screens do not fabricate it.
 - Calendar countdowns preserve their selected month/day as an annual event after the original target passes: the target day reads zero, and the following day begins counting toward the next year's occurrence.
 - Empty shelves, meeting bubbles and free-time activity history now remain genuinely empty until user or Gateway data exists. The leisure card reads the local current date and only renders completed scheduler outcomes; its V/A line comes from the most recent completed outcome.
+- When the server cost gate for automatic free-time dispatch is disabled, the existing manual-trigger control says `手动触发 · 自动未开` instead of making an unpaused rule set look like a running automatic model. The active-hours rule is evaluated in Ocean's configured timezone rather than the container's UTC clock.
 - Project, reading and meeting duration pills share a daily foreground timer. The labels grow intrinsically, start from zero for a fresh local day, and keep each mode's accumulated time separate.
 - The shared theme and settings header circles are `39px` while their original centers and inner SVG geometry remain unchanged.
 - The canonical `84px` mobile navigation already includes the iPhone home-indicator safe zone. Standalone PWA mode must not add `env(safe-area-inset-bottom)` a second time; doing so overflows the calibrated `390 × 844` composition and clips the navigation surface.

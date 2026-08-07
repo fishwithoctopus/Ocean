@@ -102,11 +102,27 @@ function timeMinutes(value: string) {
   return hour * 60 + minute;
 }
 
-function isWithinActiveHours(now: Date, activeHours: FreeTimeConfig["activeHours"]) {
+function wallClockMinutes(now: Date, timeZone?: string) {
+  if (!timeZone) return now.getHours() * 60 + now.getMinutes();
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      timeZone,
+    }).formatToParts(now);
+    const hour = Number(parts.find((part) => part.type === "hour")?.value);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value);
+    if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
+  } catch { /* Fall back to the host clock for an invalid time-zone name. */ }
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function isWithinActiveHours(now: Date, activeHours: FreeTimeConfig["activeHours"], timeZone?: string) {
   const start = timeMinutes(activeHours.start);
   const end = timeMinutes(activeHours.end);
   if (start === null || end === null || start === end) return true;
-  const current = now.getHours() * 60 + now.getMinutes();
+  const current = wallClockMinutes(now, timeZone);
   return start < end ? current >= start && current < end : current >= start || current < end;
 }
 
@@ -116,11 +132,12 @@ export function evaluateFreeTimeEligibility(config: FreeTimeConfig, input: {
   lastRunAt?: Date;
   random?: number;
   manual?: boolean;
+  timeZone?: string;
 } = {}): FreeTimeEligibility {
   if (config.paused) return { eligible: false, reason: "paused" };
   if (input.manual) return { eligible: true };
   const now = input.now ?? new Date();
-  if (!isWithinActiveHours(now, config.activeHours)) return { eligible: false, reason: "outside_active_hours" };
+  if (!isWithinActiveHours(now, config.activeHours, input.timeZone)) return { eligible: false, reason: "outside_active_hours" };
   if (input.lastUserActivityAt && now.getTime() - input.lastUserActivityAt.getTime() < config.minSilenceMinutes * 60_000) return { eligible: false, reason: "silence_window" };
   if (input.lastRunAt && now.getTime() - input.lastRunAt.getTime() < config.cooldownMinutes * 60_000) return { eligible: false, reason: "cooldown" };
   if ((input.random ?? Math.random()) > config.probability) return { eligible: false, reason: "probability" };

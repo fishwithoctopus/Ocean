@@ -52,6 +52,7 @@ export interface LivingRoomDeliveryOptions {
   nightTalk?: boolean;
   onContinuity?: (continuity: ContinuitySnapshot) => void;
   onMessages?: (messages: MessageTurn[]) => void;
+  onResponseSettled?: () => void;
 }
 
 export interface LivingRoomDeliveryResult {
@@ -92,6 +93,12 @@ export async function deliverToLivingRoom(input: string, options: LivingRoomDeli
   const history = messagesForPhysicalSession([...currentMessages, userTurn], currentContinuity)
     .map((turn) => ({ role: turn.role, content: messageContentForProvider(turn, userTurn.id) }));
   let error: string | undefined;
+  let responseSettled = false;
+  const settleResponse = () => {
+    if (responseSettled) return;
+    responseSettled = true;
+    options.onResponseSettled?.();
+  };
 
   try {
     for await (const event of adapter.streamReply(value, {
@@ -117,11 +124,14 @@ export async function deliverToLivingRoom(input: string, options: LivingRoomDeli
         publishMessages();
       }
       if (event.type === "usage") recordUsage(event);
+      if (event.type === "done") settleResponse();
     }
   } catch (caught) {
     error = caught instanceof Error ? caught.message : "连接模型时出了点问题";
     nextMessages = nextMessages.map((turn) => turn.id === replyId ? { ...turn, segments: [`连接模型时出了点问题：${error}`] } : turn);
     publishMessages();
+  } finally {
+    settleResponse();
   }
 
   const evaluated = await forgeContinuity(nextMessages, currentContinuity);

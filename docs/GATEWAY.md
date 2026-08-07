@@ -147,7 +147,7 @@ Gateway 将请求代理到 co-reading 的 `POST /api/import`。成功响应至�
 ## 自由时间调度
 
 - 休闲页修改 Time Control、Can Do 或游戏后，会把规范化配置同步到 Gateway；离线时仍保留本机副本，重新连上 Gateway 后再次同步。
-- Gateway 每 30 秒检查一次静默时间、冷却时间、活跃区间、概率和暂停状态。聊天流请求会更新最近用户活动时间，也可通过 `PUT /v1/free-time/activity` 从其他入口同步活跃信号。
+- Gateway 每 30 秒检查一次静默时间、冷却时间、活跃区间、概率和暂停状态。活跃区间按 `OCEAN_TIME_ZONE`（默认 `Asia/Shanghai`）解释，不跟随 Docker 容器的 UTC 系统时钟。聊天流请求会更新最近用户活动时间，也可通过 `PUT /v1/free-time/activity` 从其他入口同步活跃信号。
 - 初期成本观察配置为：连续静默 90 分钟后才进入候选、两次自动行动至少间隔 240 分钟、每次符合条件时以 0.35 概率触发；活跃区间保持 08:00–02:00。用户仍可在休闲页修改或直接暂停。模型调度必须使用独立提供方/模型配置，不继承当前聊天模型，避免当前选择昂贵模型时放大后台成本。
 - 只有被勾选的 Can Do 会进入唤醒提示词；游戏作为可选能力进入提示词。连接器字段只保存引用名，Gateway 在真实能力注册表中解析并复核授权，前端不得保存连接器密钥。
 - 设置服务端环境变量 `FREE_TIME_DISPATCH_URL` 后，符合条件的提示词会 POST 到该模型调度入口；没有配置时运行记录为 `queued / model_dispatch_unconfigured`，不会伪装成已执行。
@@ -155,6 +155,6 @@ Gateway 将请求代理到 co-reading 的 `POST /api/import`。成功响应至�
 - 调度目标完成行动后，通过 `PUT /v1/free-time/runs/:runId/outcome` 回写 `summary`、可选的 `valence / arousal` 与 `completedAt`。只有完成且有摘要的运行会出现在休闲页“今天做了什么”中；未回写的 queued/dispatched 记录不会被伪装成已执行。
 - Web Push 的 VAPID 私钥只存在服务器环境文件中。前端仅取得公钥并上传浏览器生成的 Push Subscription；设置页可启用、测试、关闭当前设备，并同步纸条/自由时间开关、锁屏内容预览和静默时段。自由时间只有在运行状态真实变为 `completed` 后才发送通知。
 - 通知点击后优先唤醒已打开的 Ocean 并跳转客厅；没有现存窗口时打开已安装 PWA。失效订阅在推送服务返回 `404/410` 时自动清理。
-- 内置调度使用 `FREE_TIME_PROVIDER_ID` 与 `FREE_TIME_MODEL_ID` 指定独立模型。手动触发可直接执行；只有显式设置 `FREE_TIME_AUTO_DISPATCH=enabled` 才允许定时器产生模型调用。每次运行保存 action、模型、输入/输出/缓存 token、费用、摘要及 V/A；阅读只取当前章节快照，钓鱼命令交给已连接的个人游戏引擎，未注册能力不会进入提示词或模型工具。
+- 内置调度使用 `FREE_TIME_PROVIDER_ID` 与 `FREE_TIME_MODEL_ID` 指定独立模型，默认推荐 `kimi / kimi-k3`。手动触发可直接执行；只有显式设置 `FREE_TIME_AUTO_DISPATCH=enabled` 才允许定时器产生模型调用。休闲页的暂停按钮只控制用户规则，不能绕过这道服务器成本开关；若未开启，符合规则的自动运行会明确记录为 `queued / automatic_dispatch_disabled`。每次运行保存 action、模型、输入/输出/缓存 token、费用、摘要及 V/A；阅读只取当前章节快照，钓鱼命令交给已连接的个人游戏引擎，未注册能力不会进入提示词或模型工具。
 
 旧的 Windows 自动触发脚本只作为规则和语气迁移参考，不再作为 PWA 的运行依赖。旧脚本中若存在硬编码通知或服务凭据，应轮换后迁移到服务端环境变量，不能复制进 Ocean 仓库。

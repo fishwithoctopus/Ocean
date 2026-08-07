@@ -489,7 +489,7 @@ export function HomeScreen() {
             </div>
           </div>
           {todoWheelMode ? (
-            <div className="todo-wheel wheel-surface">
+            <div className="todo-wheel wheel-surface" key={todoWheelMode}>
               {todoWheelMode === "time" ? (
                 <>
                   <WheelColumn values={Array.from({ length: 24 }, (_, index) => index)} value={todoHour} suffix="时" onChange={setTodoHour} />

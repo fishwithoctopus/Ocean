@@ -90,8 +90,8 @@ export async function dispatchFreeTimeWithModel(input: {
   providers: ProviderRegistry;
   fishing: FishingGameConnector | null;
 }): Promise<FreeTimeModelOutcome> {
-  const providerId = process.env.FREE_TIME_PROVIDER_ID?.trim() || "deepseek";
-  const configuredModel = process.env.FREE_TIME_MODEL_ID?.trim() || "deepseek-v4-flash";
+  const providerId = process.env.FREE_TIME_PROVIDER_ID?.trim() || "kimi";
+  const configuredModel = process.env.FREE_TIME_MODEL_ID?.trim() || "kimi-k3";
   const allowedActions = ["rest"];
   const snapshots: string[] = [];
 
@@ -120,7 +120,7 @@ export async function dispatchFreeTimeWithModel(input: {
     providerId,
     modelId: `${providerId}:${configuredModel}`,
     messages: [{ role: "user", content: prompt }],
-    settings: { reasoning: "low", thinking: "disabled" },
+    settings: providerId === "kimi" ? { reasoning: "max" } : { reasoning: "low", thinking: "disabled" },
     context: { mode: "free-time" },
   };
   const { provider, modelId } = input.providers.resolve(request);
