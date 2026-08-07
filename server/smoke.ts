@@ -8,7 +8,7 @@ import { extractBucketContent, memoryContentMatches, parseBreathResults, parseEv
 import { providerMessages } from "./providers/streaming.js";
 import { buildFreeTimePrompt, normalizeFreeTimeConfig } from "./freeTime.js";
 import { planChatMemoryRecall } from "./memory/recallPolicy.js";
-import { parseFreeTimeDecision } from "./freeTimeDispatcher.js";
+import { completeFreeTimeReading, getFreeTimeReadingSnapshot, parseFreeTimeDecision } from "./freeTimeDispatcher.js";
 import { visiblePaperNotes } from "./paperNotes.js";
 import { JsonStore } from "./store.js";
 import { fishingTools, isExplicitFishingRequest } from "./games/chatTool.js";
@@ -139,6 +139,8 @@ await once(providerServer, "listening");
 const providerAddress = providerServer.address();
 if (!providerAddress || typeof providerAddress === "string") throw new Error("Provider fixture did not bind a port");
 const readingBooks: Array<{ bookId: string; title: string; author: string | null; chunkCount: number; chunksRead: number; annotationCount: number; lastChunkId: string | null; lastReadAt: string | null; complete: boolean }> = [];
+const readingMarks: Array<{ bookId: string; chunkId: string }> = [];
+let freeTimeReadingComplete = false;
 const readingServer = createHttpServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/api/books") {
     response.writeHead(200, { "Content-Type": "application/json" });
@@ -157,6 +159,27 @@ const readingServer = createHttpServer(async (request, response) => {
     response.writeHead(201, { "Content-Type": "application/json" });
     return response.end(JSON.stringify(imported));
   }
+  if (request.method === "GET" && request.url === "/api/continue") {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    return response.end(JSON.stringify({
+      bookId: "free-time-smoke",
+      title: "Verified Reading",
+      author: "Ocean",
+      chunk: freeTimeReadingComplete ? null : { id: "ch01", title: "First Chapter" },
+      text: freeTimeReadingComplete ? "" : "This text was actually supplied to the free-time model.",
+      progress: { chunkCount: 1, chunksRead: freeTimeReadingComplete ? 1 : 0, complete: freeTimeReadingComplete },
+      completed: freeTimeReadingComplete,
+    }));
+  }
+  if (request.method === "POST" && request.url === "/api/mark-read") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const input = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { bookId: string; chunkId: string };
+    readingMarks.push(input);
+    freeTimeReadingComplete = true;
+    response.writeHead(200, { "Content-Type": "application/json" });
+    return response.end(JSON.stringify({ chunkCount: 1, chunksRead: 1, complete: true, lastChunkId: input.chunkId, lastReadAt: new Date().toISOString() }));
+  }
   response.writeHead(404); response.end();
 });
 readingServer.listen(0, "127.0.0.1");
@@ -164,6 +187,11 @@ await once(readingServer, "listening");
 const readingAddress = readingServer.address();
 if (!readingAddress || typeof readingAddress === "string") throw new Error("Reading fixture did not bind a port");
 process.env.CO_READING_BASE_URL = `http://127.0.0.1:${readingAddress.port}`;
+const freeTimeReadingSnapshot = await getFreeTimeReadingSnapshot();
+if (!freeTimeReadingSnapshot || freeTimeReadingSnapshot.chunk.id !== "ch01" || !freeTimeReadingSnapshot.text.includes("actually supplied")) throw new Error("Free-time reading must require a real unread chunk with text");
+const verifiedFreeTimeReading = await completeFreeTimeReading(freeTimeReadingSnapshot);
+if (readingMarks.length !== 1 || readingMarks[0]?.bookId !== "free-time-smoke" || readingMarks[0]?.chunkId !== "ch01" || !verifiedFreeTimeReading.summary.includes("共读服务已确认记录")) throw new Error("Free-time reading must be confirmed by the co-reading mark-read endpoint");
+if (await getFreeTimeReadingSnapshot() !== null) throw new Error("Completed books must not be offered as a free-time reading action");
 process.env.SMOKE_PROVIDER_KEY = "server-only-smoke-key";
 process.env.OPENROUTER_BASE_URL = `http://127.0.0.1:${providerAddress.port}`;
 process.env.OPENROUTER_API_KEY = "server-only-openrouter-smoke-key";

@@ -30,6 +30,23 @@ type ModelDecision = {
   arousal: number;
 };
 
+export type FreeTimeReadingSnapshot = {
+  bookId: string;
+  title: string;
+  author?: string;
+  chunk: { id: string; title?: string };
+  text: string;
+  progress?: { chunkCount?: number; chunksRead?: number; complete?: boolean };
+};
+
+type FreeTimeReadingProgress = {
+  chunkCount?: number;
+  chunksRead?: number;
+  complete?: boolean;
+  lastChunkId?: string | null;
+  lastReadAt?: string | null;
+};
+
 const clampAffect = (value: unknown, fallback: number) => {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : fallback;
@@ -57,31 +74,54 @@ function readingConfig() {
   };
 }
 
-async function readingSnapshot() {
+export async function getFreeTimeReadingSnapshot(): Promise<FreeTimeReadingSnapshot | null> {
   const { baseUrl, authToken } = readingConfig();
   const response = await fetch(`${baseUrl}/api/continue`, {
     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
   });
   if (!response.ok) throw new Error(`Co-reading snapshot failed with ${response.status}`);
   const page = await response.json() as Record<string, unknown>;
-  return JSON.stringify({
-    bookId: page.bookId,
-    title: page.title,
-    author: page.author,
-    chunk: page.chunk,
-    text: typeof page.text === "string" ? page.text.slice(0, 2800) : "",
-    progress: page.progress,
-  });
+  const chunk = page.chunk && typeof page.chunk === "object" ? page.chunk as Record<string, unknown> : null;
+  const progress = page.progress && typeof page.progress === "object" ? page.progress as Record<string, unknown> : undefined;
+  const bookId = typeof page.bookId === "string" ? page.bookId.trim() : "";
+  const title = typeof page.title === "string" ? page.title.trim() : "";
+  const chunkId = typeof chunk?.id === "string" ? chunk.id.trim() : "";
+  const text = typeof page.text === "string" ? page.text.trim().slice(0, 2800) : "";
+  if (!bookId || !title || !chunkId || !text || page.completed === true || progress?.complete === true) return null;
+  return {
+    bookId,
+    title,
+    author: typeof page.author === "string" ? page.author.trim() || undefined : undefined,
+    chunk: {
+      id: chunkId,
+      title: typeof chunk?.title === "string" ? chunk.title.trim() || undefined : undefined,
+    },
+    text,
+    progress: progress ? {
+      chunkCount: typeof progress.chunkCount === "number" ? progress.chunkCount : undefined,
+      chunksRead: typeof progress.chunksRead === "number" ? progress.chunksRead : undefined,
+      complete: progress.complete === true,
+    } : undefined,
+  };
 }
 
-async function optionalSnapshot(label: string, task: () => Promise<unknown>) {
-  try {
-    const value = await task();
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    return `<${label}>${serialized.slice(0, 4000)}</${label}>`;
-  } catch (error) {
-    return `<${label}_unavailable>${error instanceof Error ? error.message : "unavailable"}</${label}_unavailable>`;
-  }
+export async function completeFreeTimeReading(snapshot: FreeTimeReadingSnapshot): Promise<{ summary: string; progress: FreeTimeReadingProgress }> {
+  const { baseUrl, authToken } = readingConfig();
+  const response = await fetch(`${baseUrl}/api/mark-read`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+    body: JSON.stringify({ bookId: snapshot.bookId, chunkId: snapshot.chunk.id }),
+  });
+  if (!response.ok) throw new Error(`Co-reading mark-read failed with ${response.status}`);
+  const progress = await response.json() as FreeTimeReadingProgress;
+  const chapter = snapshot.chunk.title || snapshot.chunk.id;
+  const count = typeof progress.chunksRead === "number" && typeof progress.chunkCount === "number"
+    ? `，共读进度 ${progress.chunksRead}/${progress.chunkCount}`
+    : "";
+  return { summary: `读了《${snapshot.title}》的「${chapter}」，共读服务已确认记录${count}。`, progress };
 }
 
 export async function dispatchFreeTimeWithModel(input: {
@@ -94,11 +134,17 @@ export async function dispatchFreeTimeWithModel(input: {
   const configuredModel = process.env.FREE_TIME_MODEL_ID?.trim() || "kimi-k3";
   const allowedActions = ["rest"];
   const snapshots: string[] = [];
+  let reading: FreeTimeReadingSnapshot | null = null;
 
   for (const action of input.config.canDo.filter((item) => item.enabled)) {
     if (action.id === "reading" && process.env.CO_READING_BASE_URL) {
-      allowedActions.push("reading");
-      snapshots.push(await optionalSnapshot("reading_snapshot", readingSnapshot));
+      reading = await getFreeTimeReadingSnapshot().catch(() => null);
+      if (reading) {
+        allowedActions.push("reading");
+        snapshots.push(`<reading_snapshot>${JSON.stringify(reading)}</reading_snapshot>`);
+      } else {
+        snapshots.push("<reading_snapshot_unavailable>没有可读取的未读章节；不得声称已经读书。</reading_snapshot_unavailable>");
+      }
     } else if (action.id && !action.connector && action.id !== "message") {
       allowedActions.push(action.id);
     }
@@ -133,9 +179,13 @@ export async function dispatchFreeTimeWithModel(input: {
   }
   const decision = parseFreeTimeDecision(raw, [...new Set(allowedActions)]);
   let summary = decision.summary;
-  if (decision.action === "fishing" && input.fishing) {
+  if (decision.action === "reading" && reading) {
+    summary = (await completeFreeTimeReading(reading)).summary;
+  } else if (decision.action === "fishing" && input.fishing) {
     const result = await input.fishing.play(decision.command || "看看现在能做什么");
     summary = `${summary}\n${result}`.slice(0, 500);
+  } else if (decision.action === "rest") {
+    summary = "安静地度过了这段自由时间，没有执行外部操作。";
   }
   return { summary, valence: decision.valence, arousal: decision.arousal, action: decision.action, usage };
 }
