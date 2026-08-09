@@ -8,7 +8,9 @@ import { extractBucketContent, memoryContentMatches, parseBreathResults, parseEv
 import { providerMessages } from "./providers/streaming.js";
 import { buildFreeTimePrompt, normalizeFreeTimeConfig } from "./freeTime.js";
 import { planChatMemoryRecall } from "./memory/recallPolicy.js";
-import { completeFreeTimeReading, getFreeTimeReadingSnapshot, parseFreeTimeDecision } from "./freeTimeDispatcher.js";
+import { completeFreeTimeReading, dispatchFreeTimeWithModel, getFreeTimeReadingSnapshot, parseFreeTimeDecision } from "./freeTimeDispatcher.js";
+import { ForumAdapter } from "./forum/adapter.js";
+import type { ProviderRegistry } from "./providers/registry.js";
 import { visiblePaperNotes } from "./paperNotes.js";
 import { JsonStore } from "./store.js";
 import { fishingTools, isExplicitFishingRequest } from "./games/chatTool.js";
@@ -26,6 +28,8 @@ delete process.env.OPENROUTER_API_KEY;
 delete process.env.OPENROUTER_MODELS;
 delete process.env.FISHING_GAME_SCRIPT_PATH;
 delete process.env.FISHING_PYTHON_BIN;
+delete process.env.FORUM_MCP_URL;
+delete process.env.FORUM_MCP_AUTH_TOKEN;
 process.env.OCEAN_FORGE_THRESHOLD_UNITS = "500";
 process.env.OCEAN_FORGE_RESERVE_UNITS = "50";
 process.env.OCEAN_FORGE_RECENT_TURNS = "20";
@@ -192,6 +196,89 @@ if (!freeTimeReadingSnapshot || freeTimeReadingSnapshot.chunk.id !== "ch01" || !
 const verifiedFreeTimeReading = await completeFreeTimeReading(freeTimeReadingSnapshot);
 if (readingMarks.length !== 1 || readingMarks[0]?.bookId !== "free-time-smoke" || readingMarks[0]?.chunkId !== "ch01" || !verifiedFreeTimeReading.summary.includes("共读服务已确认记录")) throw new Error("Free-time reading must be confirmed by the co-reading mark-read endpoint");
 if (await getFreeTimeReadingSnapshot() !== null) throw new Error("Completed books must not be offered as a free-time reading action");
+
+const forumCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+const forumServer = createHttpServer(async (request, response) => {
+  if (request.method !== "POST") { response.writeHead(404); return response.end(); }
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+  const input = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id?: number; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+  if (input.method === "notifications/initialized") { response.writeHead(202); return response.end(); }
+  let result: unknown;
+  if (input.method === "initialize") result = { protocolVersion: "2024-11-05", serverInfo: { name: "community-v2", version: "2.0.0" }, capabilities: { tools: {} } };
+  else if (input.method === "tools/list") result = { tools: [
+    { name: "forum", description: "Read forum" },
+    { name: "forum_write", description: "Write forum" },
+    { name: "forum_interact", description: "Interact with forum" },
+  ] };
+  else if (input.method === "tools/call" && input.params?.name === "forum") {
+    forumCalls.push({ name: input.params.name, arguments: input.params.arguments ?? {} });
+    result = { content: [{ type: "text", text: "Latest Forum threads: Ocean release notes; memory architecture discussion." }] };
+  } else {
+    response.writeHead(400, { "Content-Type": "application/json" });
+    return response.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, error: { code: -32601, message: "Method not found" } }));
+  }
+  response.writeHead(200, { "Content-Type": "application/json", "Mcp-Session-Id": "forum-smoke-session" });
+  response.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, result }));
+});
+forumServer.listen(0, "127.0.0.1");
+await once(forumServer, "listening");
+const forumAddress = forumServer.address();
+if (!forumAddress || typeof forumAddress === "string") throw new Error("Forum fixture did not bind a port");
+process.env.FORUM_MCP_URL = `http://127.0.0.1:${forumAddress.port}/mcp`;
+process.env.FORUM_MCP_AUTH_TOKEN = "server-only-forum-smoke-token";
+const forumAdapter = new ForumAdapter(process.env.FORUM_MCP_URL, process.env.FORUM_MCP_AUTH_TOKEN);
+const forumHealth = await forumAdapter.health();
+const forumBrowse = await forumAdapter.browseLatest(4);
+if (forumHealth.name !== "community-v2" || forumHealth.mode !== "read-only" || !forumBrowse.content.includes("Ocean release notes")) throw new Error("Forum MCP read-only adapter failed");
+if (forumCalls.length !== 1 || forumCalls[0]?.name !== "forum" || forumCalls[0]?.arguments.action !== "browse" || forumCalls[0]?.arguments.sort !== "latest") throw new Error("Forum adapter must call only the forum browse action");
+
+let freeTimeForumBrowseCalls = 0;
+const fakeForum = {
+  browseLatest: async () => {
+    freeTimeForumBrowseCalls += 1;
+    return { authority: "community-v2-mcp" as const, mode: "read-only" as const, content: "Two real latest threads" };
+  },
+} as ForumAdapter;
+const forumFreeTimeProvider = {
+  resolve: () => ({ provider: {} as never, modelId: "forum-smoke" }),
+  adapter: () => ({
+    async *stream(request: ProviderChatRequest) {
+      const result = await request.executeTool?.("browse_forum", { limit: 2 });
+      if (!result?.ok) throw new Error("Forum model tool execution failed");
+      yield { type: "segment" as const, value: '{"action":"forum","summary":"看了两条最新讨论。","valence":0.62,"arousal":0.28}' };
+      yield { type: "done" as const };
+    },
+    async testConnection() { return { ok: true as const, detail: "fixture" }; },
+  }),
+} as unknown as ProviderRegistry;
+const forumFreeTimeOutcome = await dispatchFreeTimeWithModel({
+  config: normalizeFreeTimeConfig({ canDo: [{ id: "forum", label: "逛论坛", enabled: true, connector: "forum" }] }),
+  preview: buildFreeTimePrompt(normalizeFreeTimeConfig({ canDo: [{ id: "forum", label: "逛论坛", enabled: true, connector: "forum" }] })),
+  providers: forumFreeTimeProvider,
+  fishing: null,
+  forum: fakeForum,
+});
+if (forumFreeTimeOutcome.action !== "forum" || freeTimeForumBrowseCalls !== 1 || !forumFreeTimeOutcome.summary.includes("已确认本次为只读浏览")) throw new Error("Free-time Forum action must require a verified MCP browse result");
+const narratedForumProvider = {
+  resolve: () => ({ provider: {} as never, modelId: "forum-smoke" }),
+  adapter: () => ({
+    async *stream() { yield { type: "segment" as const, value: '{"action":"forum","summary":"我说自己看过了。","valence":0.5,"arousal":0.3}' }; },
+    async testConnection() { return { ok: true as const, detail: "fixture" }; },
+  }),
+} as unknown as ProviderRegistry;
+let narratedForumRejected = false;
+try {
+  await dispatchFreeTimeWithModel({
+    config: normalizeFreeTimeConfig({ canDo: [{ id: "forum", label: "逛论坛", enabled: true, connector: "forum" }] }),
+    preview: buildFreeTimePrompt(normalizeFreeTimeConfig({ canDo: [{ id: "forum", label: "逛论坛", enabled: true, connector: "forum" }] })),
+    providers: narratedForumProvider,
+    fishing: null,
+    forum: fakeForum,
+  });
+} catch { narratedForumRejected = true; }
+if (!narratedForumRejected) throw new Error("Narrated Forum browsing without a real MCP tool call must be rejected");
+
 process.env.SMOKE_PROVIDER_KEY = "server-only-smoke-key";
 process.env.OPENROUTER_BASE_URL = `http://127.0.0.1:${providerAddress.port}`;
 process.env.OPENROUTER_API_KEY = "server-only-openrouter-smoke-key";
@@ -210,6 +297,8 @@ if (emptyPaperNotes.notes.length !== 0 || skippedPaperNoteGeneration.status !== 
 const health = await fetch(`${base}/health`).then((response) => response.json());
 const capabilities = await fetch(`${base}/v1/capabilities`).then((response) => response.json()) as { conversations: { persistent: boolean; restoreOnEmpty: boolean; multiDeviceMerge: boolean }; continuity: { providerSummary: boolean; physicalSessionRotation: boolean; storageStatus: boolean; restoreOnEmpty: boolean }; memory: { eventCandidates: boolean; eventCandidateTypes: string[] } };
 const integrations = await fetch(`${base}/v1/integrations`).then((response) => response.json()) as { services: Array<{ id: string; state: string }> };
+const gatewayForumHealth = await fetch(`${base}/v1/forum/health`).then((response) => response.json()) as { status: string; mode: string; tools: string[] };
+const connectors = await fetch(`${base}/v1/connectors`).then((response) => response.json()) as Array<{ id: string; configured: boolean; automaticPolicy: string }>;
 const providers = await fetch(`${base}/v1/providers`).then((response) => response.json()) as Array<{ id: string; configured: boolean; models: Array<{ id: string; settings: Array<{ id: string }> }> }>;
 const models = await fetch(`${base}/v1/models`).then((response) => response.json()) as Array<{ id: string; providerId: string }>;
 const mockProviderTest = await fetch(`${base}/v1/providers/mock/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((response) => response.json()) as { ok: boolean };
@@ -287,6 +376,7 @@ if (memoryEvent.id !== repeatedMemoryEvent.id || memoryEvent.status !== "candida
 if (dismissedMemoryEvent.status !== "dismissed" || unavailableAcceptStatus !== 503) throw new Error("Memory candidate review must support dismissal and reject false acceptance when Memory is unavailable");
 if (!candidates.some((candidate) => candidate.id.startsWith("event:session-forge:"))) throw new Error("A real Session Forge must create a reviewable memory candidate");
 if (!integrations.services.some((service) => service.id === "continuity" && service.state === "real")) throw new Error("Integration manifest must expose persistent continuity rotation as real");
+if (!integrations.services.some((service) => service.id === "forum" && service.state === "real") || gatewayForumHealth.status !== "ok" || gatewayForumHealth.mode !== "read-only" || !connectors.some((connector) => connector.id === "forum" && connector.configured && connector.automaticPolicy === "read-only")) throw new Error("Gateway must expose the configured read-only Forum connector honestly");
 if (importedBook.bookId !== "ocean-smoke" || importedBook.chunkCount !== 1 || !refreshedReadingBooks.some((book) => book.bookId === "ocean-smoke")) throw new Error("Co-reading import proxy or post-import library refresh contract failed");
 if (!fixtureProviderTest.ok || !providerStream.includes("第一段") || !providerStream.includes("第二段") || !providerStream.includes('"cachedTokens":8') || !providerStream.includes('"costEstimated":true') || !providerStream.includes('"pricingSource":"gateway-config"')) throw new Error("OpenAI-compatible provider usage normalization or pricing failed");
 if (!providerBodies.some((entry) => JSON.stringify(entry).includes("附件透传测试"))) throw new Error("Supported text attachments must reach the provider request body");
@@ -298,6 +388,7 @@ console.log(JSON.stringify({ health, capabilities, integrationStates: Object.fro
 server.close();
 providerServer.close();
 readingServer.close();
+forumServer.close();
 await unlink(dataPath).catch(() => undefined);
 await unlink(paperNoteDataPath).catch(() => undefined);
 await rm(`${dataPath}.projects`, { recursive: true, force: true }).catch(() => undefined);

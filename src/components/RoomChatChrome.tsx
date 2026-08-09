@@ -613,8 +613,8 @@ export function RoomChatChrome({
       {panel === "connectors" && (
         <section className="living-attachment-menu living-connector-menu" aria-label="选择连接器" onClick={(event) => event.stopPropagation()}>
           <strong>本轮只读上下文</strong>
-          {connectors.filter((item) => item.configured && item.id !== "fishing").map((item) => <button key={item.id} onClick={() => addConnector(item.id, item.provider)}><img src={livingAsset("plus-connector.svg")} alt="" />{item.provider}</button>)}
-          {!connectors.some((item) => item.configured && item.id !== "fishing") ? <small>暂未添加连接器</small> : null}
+          {connectors.filter((item) => item.configured && item.id !== "fishing" && item.id !== "forum").map((item) => <button key={item.id} onClick={() => addConnector(item.id, item.provider)}><img src={livingAsset("plus-connector.svg")} alt="" />{item.provider}</button>)}
+          {!connectors.some((item) => item.configured && item.id !== "fishing" && item.id !== "forum") ? <small>暂未添加连接器</small> : null}
         </section>
       )}
 

@@ -29,6 +29,7 @@ type Controls = {
 };
 
 const INITIAL_CAN_DO: CanDoItem[] = [
+  { id: "forum", label: "逛论坛", enabled: true, connector: "forum", description: "只读浏览，不发帖或互动" },
   { id: "reading", label: "看书", enabled: true },
   { id: "message", label: "给用户发消息", enabled: false },
 ];
@@ -150,6 +151,15 @@ export function LeisureRoom() {
   const [clock, setClock] = useState(() => new Date());
   const gameGesture = useRef<{ pointerId: number; startX: number; lastX: number; lastAt: number; velocity: number; distance: number } | null>(null);
   const gameSettleTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    const migrationKey = "ocean:free-time:forum-mcp-migrated:v1";
+    if (window.localStorage.getItem(migrationKey)) return;
+    setCanDo((current) => current.some((item) => item.id === "forum" || item.connector === "forum")
+      ? current
+      : [INITIAL_CAN_DO[0], ...current]);
+    window.localStorage.setItem(migrationKey, "true");
+  }, [setCanDo]);
 
   const canDoPageCount = Math.max(1, Math.ceil((canDo.length + 1) / CAN_DO_PAGE_SIZE));
   const visibleCanDo = useMemo(() => {

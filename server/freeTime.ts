@@ -42,6 +42,7 @@ export const DEFAULT_FREE_TIME_CONFIG: FreeTimeConfig = {
   activeHours: { start: "08:00", end: "02:00" },
   probability: 0.35,
   canDo: [
+    { id: "forum", label: "逛论坛", enabled: true, connector: "forum", description: "只读浏览论坛，不发帖、不回复、不点赞" },
     { id: "reading", label: "看书", enabled: true },
     { id: "message", label: "给用户发消息", enabled: false },
   ],
@@ -67,7 +68,7 @@ export function normalizeFreeTimeConfig(value: unknown): FreeTimeConfig {
       connector: stringValue(item.connector) || undefined,
       description: stringValue(item.description) || undefined,
     } satisfies FreeTimeAction;
-  }).filter((item) => item.label && item.id !== "forum" && item.connector !== "forum") : DEFAULT_FREE_TIME_CONFIG.canDo;
+  }).filter((item) => item.label) : DEFAULT_FREE_TIME_CONFIG.canDo;
   const normalizedGames = Array.isArray(input.games) ? input.games.map((entry, index) => {
     const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
     return {

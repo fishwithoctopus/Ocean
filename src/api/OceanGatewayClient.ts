@@ -5,6 +5,7 @@ import { getGatewayBaseUrl } from "../config/gateway";
 
 export interface GatewayHealth { status: "ok" | "degraded"; version: string; providers: string[] }
 export interface ReadingHealth { status: "ok"; provider: "co-reading-mcp"; books: number; baseUrl: string }
+export interface ForumHealth { status: "ok"; provider: "community-v2-mcp"; name: string; version: string; tools: string[]; mode: "read-only" }
 export interface OceanAccessStatus { required: boolean; authenticated: boolean }
 export interface OceanProject {
   id: string;
@@ -94,6 +95,7 @@ export class OceanGatewayClient {
   listDailyImpressions(from: string, to: string, signal?: AbortSignal) { return this.json<DailyImpressionSummary[]>(`/v1/memory/daily-impressions?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { signal }); }
   breathMemory(payload: Record<string, unknown>) { return this.json<{ content: string }>("/v1/memory/breath", { method: "POST", body: JSON.stringify(payload) }); }
   readingHealth(signal?: AbortSignal) { return this.json<ReadingHealth>("/v1/reading/health", { signal }); }
+  forumHealth(signal?: AbortSignal) { return this.json<ForumHealth>("/v1/forum/health", { signal }); }
   getFreeTimeConfig() { return this.json<FreeTimeConfig>("/v1/free-time/config"); }
   saveFreeTimeConfig(payload: FreeTimeConfig) { return this.json<FreeTimeConfig>("/v1/free-time/config", { method: "PUT", body: JSON.stringify(payload) }); }
   previewFreeTimePrompt(payload?: FreeTimeConfig) { return this.json<FreeTimePromptPreview>("/v1/free-time/preview", { method: "POST", body: JSON.stringify(payload ? { config: payload } : {}) }); }

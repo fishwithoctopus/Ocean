@@ -15,6 +15,7 @@ import { createFishingGameConnectorFromEnv, type FishingGameConnector } from "./
 import { fishingTools } from "./games/chatTool.js";
 import { OceanAccessController } from "./access.js";
 import { dispatchFreeTimeWithModel } from "./freeTimeDispatcher.js";
+import { createForumAdapterFromEnv, type ForumAdapter } from "./forum/adapter.js";
 import { normalizeNotificationPreferences, OceanNotificationService } from "./notifications.js";
 import type { PushSubscription } from "web-push";
 import { NeteaseMusicService } from "./music/netease.js";
@@ -169,7 +170,7 @@ function memoryTools(memory: MemoryAdapter, chatRequest: ProviderChatRequest) {
   };
 }
 
-function integrationManifest(providers: ProviderRegistry, integrations: { memory: boolean; fishing: boolean; notifications: boolean; music: boolean; notion: boolean }) {
+function integrationManifest(providers: ProviderRegistry, integrations: { memory: boolean; fishing: boolean; forum: boolean; notifications: boolean; music: boolean; notion: boolean }) {
   const configuredProviders = providers.listPublic().filter((provider) => provider.configured && provider.kind !== "mock");
   const meetingModels = providers.listModels().filter((model) => {
     if (model.providerId === "mock") return false;
@@ -190,6 +191,7 @@ function integrationManifest(providers: ProviderRegistry, integrations: { memory
       { id: "memory", state: integrations.memory ? "real" : "staging", source: integrations.memory ? "ombre-brain-mcp" : "gateway-candidate-store", detail: integrations.memory ? "Memory reads are live; explicit save requests commit through hold." : "Candidates are durable on the Gateway but are not yet committed to Memory 3.0." },
       { id: "home", state: integrations.memory && configuredProviders.length ? "real" : "staging", source: "gateway-json-store+memory-paper-notes", detail: integrations.memory && configuredProviders.length ? "User-authored home data syncs; daily impressions and four-window paper notes are connected." : "User-authored home data syncs; automated paper notes wait for both Memory and a real model provider." },
       { id: "reading", state: process.env.CO_READING_BASE_URL ? "real" : "unconfigured", source: "co-reading-proxy", detail: process.env.CO_READING_BASE_URL ? "The Gateway proxy is configured." : "Set CO_READING_BASE_URL to enable the real service." },
+      { id: "forum", state: integrations.forum ? "real" : "unconfigured", source: "community-v2-mcp", detail: integrations.forum ? "The companion account can browse Forum through a server-only, read-only MCP connection. Posting and interactions are not exposed." : "Set FORUM_MCP_URL and FORUM_MCP_AUTH_TOKEN to enable read-only Forum browsing." },
       { id: "fishing-game", state: integrations.fishing ? "real" : "unconfigured", source: "tutusagi-ai-fishing-game", detail: integrations.fishing ? "The external personal-use game engine is available through the Gateway." : "Set FISHING_GAME_SCRIPT_PATH to enable the optional fishing game." },
       { id: "free-time-config", state: "real", source: "gateway-scheduler", detail: "Rules, prompt preview, eligibility, persistence, and run history are active." },
       { id: "free-time-dispatch", state: freeTimeDispatchConfigured ? "real" : "unconfigured", source: internalFreeTimeModel ? `internal:${internalFreeTimeModel}` : "dispatch-webhook", detail: internalFreeTimeModel ? `Manual model dispatch is ready; automatic dispatch is ${process.env.FREE_TIME_AUTO_DISPATCH === "enabled" ? "enabled" : "disabled"}.` : process.env.FREE_TIME_DISPATCH_URL ? "Eligible runs can be dispatched to the configured webhook." : "Runs remain queued until a dispatch target is configured." },
@@ -324,7 +326,7 @@ async function streamChat(request: IncomingMessage, response: ServerResponse, pr
   response.end();
 }
 
-async function runFreeTime(store: JsonStore, providers: ProviderRegistry, fishing: FishingGameConnector | null, notifications: OceanNotificationService, input: {
+async function runFreeTime(store: JsonStore, providers: ProviderRegistry, fishing: FishingGameConnector | null, forum: ForumAdapter | null, notifications: OceanNotificationService, input: {
   manual?: boolean;
   recordSkip?: boolean;
   now?: Date;
@@ -350,7 +352,7 @@ async function runFreeTime(store: JsonStore, providers: ProviderRegistry, fishin
   const automaticModelEnabled = process.env.FREE_TIME_AUTO_DISPATCH === "enabled";
   if (internalModelConfigured && (input.manual || automaticModelEnabled)) {
     try {
-      const outcome = await dispatchFreeTimeWithModel({ config, preview, providers, fishing });
+      const outcome = await dispatchFreeTimeWithModel({ config, preview, providers, fishing, forum });
       console.info(JSON.stringify({ event: "ocean_free_time_usage", at: new Date().toISOString(), manual: Boolean(input.manual), action: outcome.action, usage: outcome.usage }));
       const saved = await store.saveFreeTimeRun({ ...preview, status: "completed", reason: input.manual ? "manual_model_dispatch" : "automatic_model_dispatch", completedAt: new Date().toISOString(), ...outcome });
       await notifications.notifyFreeTime(saved);
@@ -418,6 +420,7 @@ export async function createOceanGateway(dataPath?: string) {
   const providers = new ProviderRegistry();
   const memory = createMemoryAdapterFromEnv();
   const fishing = createFishingGameConnectorFromEnv();
+  const forum = createForumAdapterFromEnv();
   const access = new OceanAccessController();
   await store.initialize();
   await notion.initialize();
@@ -458,11 +461,11 @@ export async function createOceanGateway(dataPath?: string) {
         const musicStatus = await music.status();
         const configuredMeetingModels = providers.listModels().filter((model) => model.providerId !== "mock" && /(kimi[- ]k3|gpt[- ]5\.6|sonnet[- ]4\.6|opus[- ]4\.6)/i.test(`${model.name} ${model.upstreamModelId ?? model.id}`));
         const paperNotesConfigured = providers.listPublic().some((provider) => provider.configured && provider.kind !== "mock");
-        return sendJson(response, 200, { chat: { stream: true, reasoningSummary: true, usage: true, promptCache: true, providers: true, dynamicModels: true, memoryRecall: Boolean(memory) && process.env.OCEAN_CHAT_MEMORY_RECALL !== "disabled" }, conversations: { persistent: true, restoreOnEmpty: true, multiDeviceMerge: false }, continuity: { snapshot: true, providerSummary: Boolean(process.env.OCEAN_FORGE_SUMMARY_PROVIDER), physicalSessionRotation: true, persistent: true, storageStatus: true, restoreOnEmpty: true }, memory: { candidateStaging: true, eventCandidates: true, eventCandidateTypes: ["session-forge", "project-completed", "reading-completed", "meeting-completed"], adapterConnected: Boolean(memory), buckets: Boolean(memory), search: Boolean(memory), chatRecall: Boolean(memory) && process.env.OCEAN_CHAT_MEMORY_RECALL !== "disabled", scheduledReview: false, evidenceChain: Boolean(memory), portrait: Boolean(memory), dailyImpression: Boolean(memory), paperNotes: Boolean(memory) && paperNotesConfigured, explicitHold: Boolean(memory) }, projects: { persistent: true, documents: true, files: true, meetingMinutes: true, contextInjection: true, notionMirror: notion.configured, notionAutoSync: notion.autoSync }, reading: { adapter: "co-reading-mcp", contextMode: "chunk-once-per-session", configured: Boolean(process.env.CO_READING_BASE_URL) }, meetings: { orchestrator: "client-sequential", configured: configuredMeetingModels.length >= 2, models: configuredMeetingModels.map((model) => ({ id: model.id, name: model.name })) }, connectors: { fishing: { configured: Boolean(fishing), persistentSave: Boolean(fishing) } }, scheduler: { persistent: true, adapter: "gateway-config", modelDispatch: Boolean(process.env.FREE_TIME_DISPATCH_URL || process.env.FREE_TIME_PROVIDER_ID), automaticDispatch: process.env.FREE_TIME_AUTO_DISPATCH === "enabled", providerId: process.env.FREE_TIME_PROVIDER_ID?.trim() || null, modelId: process.env.FREE_TIME_MODEL_ID?.trim() || null }, notifications: { webPush: notifications.configured, subscriptions: store.listPushSubscriptions().length, freeTime: true, paperNotes: true, quietHours: true }, music: { provider: "netease-cloud-music", connected: musicStatus.connected, qrLogin: true, playlists: true, playbackUrl: true } });
+        return sendJson(response, 200, { chat: { stream: true, reasoningSummary: true, usage: true, promptCache: true, providers: true, dynamicModels: true, memoryRecall: Boolean(memory) && process.env.OCEAN_CHAT_MEMORY_RECALL !== "disabled" }, conversations: { persistent: true, restoreOnEmpty: true, multiDeviceMerge: false }, continuity: { snapshot: true, providerSummary: Boolean(process.env.OCEAN_FORGE_SUMMARY_PROVIDER), physicalSessionRotation: true, persistent: true, storageStatus: true, restoreOnEmpty: true }, memory: { candidateStaging: true, eventCandidates: true, eventCandidateTypes: ["session-forge", "project-completed", "reading-completed", "meeting-completed"], adapterConnected: Boolean(memory), buckets: Boolean(memory), search: Boolean(memory), chatRecall: Boolean(memory) && process.env.OCEAN_CHAT_MEMORY_RECALL !== "disabled", scheduledReview: false, evidenceChain: Boolean(memory), portrait: Boolean(memory), dailyImpression: Boolean(memory), paperNotes: Boolean(memory) && paperNotesConfigured, explicitHold: Boolean(memory) }, projects: { persistent: true, documents: true, files: true, meetingMinutes: true, contextInjection: true, notionMirror: notion.configured, notionAutoSync: notion.autoSync }, reading: { adapter: "co-reading-mcp", contextMode: "chunk-once-per-session", configured: Boolean(process.env.CO_READING_BASE_URL) }, meetings: { orchestrator: "client-sequential", configured: configuredMeetingModels.length >= 2, models: configuredMeetingModels.map((model) => ({ id: model.id, name: model.name })) }, connectors: { fishing: { configured: Boolean(fishing), persistentSave: Boolean(fishing) }, forum: { configured: Boolean(forum), mode: "read-only", automaticBrowsing: Boolean(forum) } }, scheduler: { persistent: true, adapter: "gateway-config", modelDispatch: Boolean(process.env.FREE_TIME_DISPATCH_URL || process.env.FREE_TIME_PROVIDER_ID), automaticDispatch: process.env.FREE_TIME_AUTO_DISPATCH === "enabled", providerId: process.env.FREE_TIME_PROVIDER_ID?.trim() || null, modelId: process.env.FREE_TIME_MODEL_ID?.trim() || null }, notifications: { webPush: notifications.configured, subscriptions: store.listPushSubscriptions().length, freeTime: true, paperNotes: true, quietHours: true }, music: { provider: "netease-cloud-music", connected: musicStatus.connected, qrLogin: true, playlists: true, playbackUrl: true } });
       }
       if (request.method === "GET" && url.pathname === "/v1/integrations") {
         const musicStatus = await music.status();
-        return sendJson(response, 200, integrationManifest(providers, { memory: Boolean(memory), fishing: Boolean(fishing), notifications: notifications.configured, music: musicStatus.connected, notion: notion.configured }));
+        return sendJson(response, 200, integrationManifest(providers, { memory: Boolean(memory), fishing: Boolean(fishing), forum: Boolean(forum), notifications: notifications.configured, music: musicStatus.connected, notion: notion.configured }));
       }
       if (request.method === "GET" && url.pathname === "/v1/notion/status") return sendJson(response, 200, await notion.status(true));
       if (request.method === "POST" && url.pathname === "/v1/notion/test") {
@@ -510,7 +513,12 @@ export async function createOceanGateway(dataPath?: string) {
       }
       if (request.method === "GET" && url.pathname === "/v1/connectors") return sendJson(response, 200, [
         { id: "fishing", configured: Boolean(fishing), provider: "tutusagi-ai-fishing-game", automaticPolicy: "game-state", healthPath: "/v1/games/fishing/health" },
+        { id: "forum", configured: Boolean(forum), provider: "community-v2-mcp", automaticPolicy: "read-only", healthPath: "/v1/forum/health" },
       ]);
+      if (request.method === "GET" && url.pathname === "/v1/forum/health") {
+        if (!forum) return sendJson(response, 503, { status: "unconfigured", provider: "community-v2-mcp", mode: "read-only" });
+        return sendJson(response, 200, await forum.health());
+      }
       if (request.method === "GET" && url.pathname === "/v1/games/fishing/health") {
         if (!fishing) return sendJson(response, 503, { status: "unconfigured", provider: "tutusagi-ai-fishing-game" });
         return sendJson(response, 200, await fishing.health());
@@ -800,7 +808,7 @@ export async function createOceanGateway(dataPath?: string) {
       }
       if (request.method === "POST" && url.pathname === "/v1/free-time/trigger") {
         const input = await body(request);
-        const run = await runFreeTime(store, providers, fishing, notifications, { manual: input.manual === true, recordSkip: true });
+        const run = await runFreeTime(store, providers, fishing, forum, notifications, { manual: input.manual === true, recordSkip: true });
         return sendJson(response, run?.status === "skipped" ? 200 : 202, run);
       }
       if (url.pathname.startsWith("/v1/reading/")) return void await proxyCoReading(request, response, url);
@@ -815,7 +823,7 @@ export async function createOceanGateway(dataPath?: string) {
   const schedulerTimer = setInterval(() => {
     if (schedulerBusy) return;
     schedulerBusy = true;
-    void runFreeTime(store, providers, fishing, notifications).catch((error) => console.error("Ocean free-time scheduler:", error)).finally(() => { schedulerBusy = false; });
+    void runFreeTime(store, providers, fishing, forum, notifications).catch((error) => console.error("Ocean free-time scheduler:", error)).finally(() => { schedulerBusy = false; });
   }, 30_000);
   schedulerTimer.unref();
   let paperNotesBusy = false;

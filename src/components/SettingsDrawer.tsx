@@ -19,7 +19,7 @@ import {
   type OceanNotificationStatus,
 } from "../notifications";
 
-type ConnectionSection = "model" | "gateway" | "memory" | "reading" | "notion" | "music" | "notifications";
+type ConnectionSection = "model" | "gateway" | "memory" | "reading" | "forum" | "notion" | "music" | "notifications";
 type Section = ConnectionSection | "relationship" | "data";
 type ConnectionState = "mock" | "connected" | "staging" | "disconnected";
 
@@ -28,6 +28,7 @@ const labels: Record<Section, string> = {
   gateway: "网关",
   memory: "Ocean Memory",
   reading: "共读 MCP",
+  forum: "Forum MCP",
   notion: "Notion",
   music: "网易云音乐",
   notifications: "通知",
@@ -119,6 +120,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
     gateway: "mock",
     memory: "mock",
     reading: "mock",
+    forum: "disconnected",
     notion: "disconnected",
     music: "disconnected",
     notifications: "disconnected",
@@ -288,6 +290,18 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const connectForum = async () => {
+    setNotice("正在检查陪伴者的 Forum 只读连接…");
+    try {
+      const health = await new OceanGatewayClient().forumHealth();
+      setStates((current) => ({ ...current, forum: "connected" }));
+      setNotice(`Forum MCP 已连接 · ${health.name} ${health.version} · 只读模式`);
+    } catch {
+      setStates((current) => ({ ...current, forum: "disconnected" }));
+      setNotice("Forum MCP 暂时无法连接；Ocean 不会把未执行的论坛浏览记成真实行动");
+    }
+  };
+
   const startMusicLogin = async () => {
     setNotice("正在生成网易云登录二维码…");
     try {
@@ -405,6 +419,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
         {section === "gateway" && <><h3>Ocean 网关</h3><p>负责密钥、流式事件、Usage、缓存和会话续接。</p><label>部署方式<OceanSelect ariaLabel="部署方式" defaultValue="用户自托管" options={["用户自托管", "Ocean Cloud（路线图）"]} /></label><label>Gateway URL<input value={gatewayUrl} onChange={(event) => setGatewayUrlDraft(event.target.value)} /></label><label>健康检查<input defaultValue="/health" readOnly /></label><button className="primary-setting" onClick={() => void connectGateway()}>保存并测试网关</button></>}
         {section === "memory" && <><h3>Ocean Memory 3.0</h3><p>长期记忆由独立记忆库持有，Ocean 只通过服务端适配器读写；Gateway 暂存不等于已经进入记忆库。</p><label>服务地址<input defaultValue="由 Ocean Gateway 私有配置" readOnly /></label><label>当前写入路径<input value={states.memory === "connected" ? "Memory 3.0" : states.memory === "staging" ? "Gateway 候选暂存" : "等待检测"} readOnly /></label><label>访问凭据<input defaultValue="由服务端管理" readOnly /></label><button className="primary-setting" onClick={() => void connectMemory()}>检查 Memory 路径</button></>}
         {section === "reading" && <><h3>共读书房</h3><p>Ocean Gateway 通过 REST 连接 co-reading-mcp；模型仍可使用同一服务的 MCP 工具。</p><label>连接方式<OceanSelect ariaLabel="共读连接方式" defaultValue="经 Ocean Gateway" options={["经 Ocean Gateway", "离线演示"]} /></label><label>服务地址<input defaultValue="http://127.0.0.1:8788" readOnly /></label><label>上下文策略<input defaultValue="每章节每会话一次" readOnly /></label><button className="primary-setting" onClick={() => void connectReading()}>测试共读连接</button></>}
+        {section === "forum" && <><h3>Forum MCP</h3><p>陪伴者账号由 Ocean Gateway 私有持有。当前只允许真实浏览论坛；不会自动发帖、回复、点赞、收藏或修改资料。</p><label>账号<input value="陪伴者专用账号" readOnly /></label><label>自动行动权限<input value="只读浏览" readOnly /></label><label>访问凭据<input value="只保存在 Ocean Gateway" readOnly /></label><button className="primary-setting" onClick={() => void connectForum()}>测试 Forum 连接</button></>}
         {section === "notion" && <><h3>Notion 项目镜像</h3><p>Ocean Server 始终保存主数据；Notion 只镜像项目说明、文档标题、正文和文件清单。当前为单向同步，不会把 Notion 手动编辑反向覆盖 Ocean。</p><label>授权方式<input value="服务端内部集成" readOnly /></label><label>目标页面<input value={notionStatus?.parentTitle ?? (notionStatus?.parentPageConfigured ? "已配置，等待检测" : "尚未配置")} readOnly /></label><label>同步方式<input value={notionStatus?.autoSync ? "保存后自动同步＋手动同步" : "项目空间内手动同步"} readOnly /></label><label>访问凭据<input value="只保存在 Ocean Gateway" readOnly /></label><button className="primary-setting" onClick={() => void connectNotion()}>测试 Notion 连接</button></>}
         {section === "music" && <><h3>网易云音乐</h3><p>使用二维码授权个人歌单。登录 Cookie 只保存在 Ocean Gateway，不进入浏览器、导出文件或开源版本。</p>{musicStatus?.connected ? <><div className="music-account-card">{musicStatus.profile?.avatarUrl ? <img alt="" src={musicStatus.profile.avatarUrl} /> : <span aria-hidden="true" />}<div><small>已连接</small><strong>{musicStatus.profile?.nickname ?? "网易云用户"}</strong></div></div><button className="secondary-setting" onClick={() => void disconnectMusic()}>退出网易云音乐</button></> : musicQr ? <><div className="music-qr-card"><img alt="网易云音乐登录二维码" src={musicQr.qrImage} /><strong>{musicQrState === "confirming" ? "请在网易云确认" : musicQrState === "expired" ? "二维码已过期" : "请用网易云音乐扫码"}</strong><small>建议在电脑打开此页，再用手机网易云扫码</small></div><button className="secondary-setting" onClick={() => void startMusicLogin()}>重新生成二维码</button></> : <button className="primary-setting" onClick={() => void startMusicLogin()}>连接网易云音乐</button>}</>}
         {section === "notifications" && <><h3>通知</h3><p>安装到主屏幕后，纸条与自由活动可以通过 Web Push 到达手机。未开启内容预览时，锁屏只显示隐私安全的提示。</p><label className="toggle-setting"><span>纸条通知</span><input checked={notificationPreferences.paperNotes} onChange={(event) => updateNotificationPreferences({ paperNotes: event.target.checked })} type="checkbox" /></label><label className="toggle-setting"><span>自由活动通知</span><input checked={notificationPreferences.freeTime} onChange={(event) => updateNotificationPreferences({ freeTime: event.target.checked })} type="checkbox" /></label><label className="toggle-setting"><span>显示通知内容</span><input checked={notificationPreferences.showPreview} onChange={(event) => updateNotificationPreferences({ showPreview: event.target.checked })} type="checkbox" /></label><label><span>静默开始</span><input onChange={(event) => updateNotificationPreferences({ quietStart: event.target.value })} type="time" value={notificationPreferences.quietStart} /></label><label><span>静默结束</span><input onChange={(event) => updateNotificationPreferences({ quietEnd: event.target.value })} type="time" value={notificationPreferences.quietEnd} /></label>{notificationStatus === "subscribed" ? <><button className="primary-setting" onClick={() => void sendTestNotification()}>发送测试通知</button><button className="secondary-setting" onClick={() => void disableNotifications()}>关闭这台设备的通知</button></> : <button className="primary-setting" onClick={() => void enableNotifications()}>启用这台设备的通知</button>}</>}

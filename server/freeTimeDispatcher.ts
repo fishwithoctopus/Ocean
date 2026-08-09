@@ -1,4 +1,5 @@
 import type { FishingGameConnector } from "./games/fishing.js";
+import type { ForumAdapter, ForumBrowseResult } from "./forum/adapter.js";
 import type { FreeTimeConfig, FreeTimePromptPreview } from "./freeTime.js";
 import type { ProviderRegistry } from "./providers/registry.js";
 import type { GatewayStreamEvent, ProviderChatRequest } from "./providers/types.js";
@@ -129,12 +130,14 @@ export async function dispatchFreeTimeWithModel(input: {
   preview: FreeTimePromptPreview;
   providers: ProviderRegistry;
   fishing: FishingGameConnector | null;
+  forum: ForumAdapter | null;
 }): Promise<FreeTimeModelOutcome> {
   const providerId = process.env.FREE_TIME_PROVIDER_ID?.trim() || "kimi";
   const configuredModel = process.env.FREE_TIME_MODEL_ID?.trim() || "kimi-k3";
   const allowedActions = ["rest"];
   const snapshots: string[] = [];
   let reading: FreeTimeReadingSnapshot | null = null;
+  let forumBrowse: ForumBrowseResult | null = null;
 
   for (const action of input.config.canDo.filter((item) => item.enabled)) {
     if (action.id === "reading" && process.env.CO_READING_BASE_URL) {
@@ -145,6 +148,8 @@ export async function dispatchFreeTimeWithModel(input: {
       } else {
         snapshots.push("<reading_snapshot_unavailable>没有可读取的未读章节；不得声称已经读书。</reading_snapshot_unavailable>");
       }
+    } else if ((action.id === "forum" || action.connector === "forum") && input.forum) {
+      allowedActions.push("forum");
     } else if (action.id && !action.connector && action.id !== "message") {
       allowedActions.push(action.id);
     }
@@ -159,6 +164,7 @@ export async function dispatchFreeTimeWithModel(input: {
     "只输出一个 JSON 对象，不要 Markdown：",
     '{"action":"rest","summary":"第一人称、简短记录实际做了什么","command":"仅 fishing 时填写游戏命令","valence":0.5,"arousal":0.35}',
     allowedActions.includes("fishing") ? "选择 fishing 时优先使用省 token 的批量指令，例如 cast 10 stop=new,rare,event，或用分号把购买、移动与连钓合并为一次 command；不要一竿一轮。" : "",
+    allowedActions.includes("forum") ? "选择 forum 时必须先调用 browse_forum。它只允许读取最新帖子；不得声称发帖、回复、点赞、收藏、关注或修改资料。没有成功的工具结果时不得选择 forum。" : "",
   ].join("\n\n");
 
   const request: ProviderChatRequest = {
@@ -168,6 +174,29 @@ export async function dispatchFreeTimeWithModel(input: {
     messages: [{ role: "user", content: prompt }],
     settings: providerId === "kimi" ? { reasoning: "max" } : { reasoning: "low", thinking: "disabled" },
     context: { mode: "free-time" },
+    ...(allowedActions.includes("forum") ? {
+      tools: [{
+        type: "function" as const,
+        function: {
+          name: "browse_forum",
+          description: "只读浏览 Forum 最新内容。不会发帖、回复、点赞或修改资料。",
+          parameters: {
+            type: "object",
+            properties: {
+              limit: { type: "integer", minimum: 1, maximum: 12, description: "读取的最新主题数量" },
+            },
+            additionalProperties: false,
+          },
+        },
+      }],
+      toolChoice: "auto" as const,
+      executeTool: async (name: string, argumentsValue: Record<string, unknown>) => {
+        if (name !== "browse_forum" || !input.forum) return { ok: false, content: { error: "Forum tool is unavailable" } };
+        const limit = typeof argumentsValue.limit === "number" ? argumentsValue.limit : Number(argumentsValue.limit) || 8;
+        forumBrowse = await input.forum.browseLatest(limit);
+        return { ok: true, content: forumBrowse };
+      },
+    } : {}),
   };
   const { provider, modelId } = input.providers.resolve(request);
   let raw = "";
@@ -184,6 +213,9 @@ export async function dispatchFreeTimeWithModel(input: {
   } else if (decision.action === "fishing" && input.fishing) {
     const result = await input.fishing.play(decision.command || "看看现在能做什么");
     summary = `${summary}\n${result}`.slice(0, 500);
+  } else if (decision.action === "forum") {
+    if (!forumBrowse) throw new Error("Forum action was selected without a verified Forum MCP browse result");
+    summary = `${summary}\nForum MCP 已确认本次为只读浏览，没有执行发帖或互动。`.slice(0, 500);
   } else if (decision.action === "rest") {
     summary = "安静地度过了这段自由时间，没有执行外部操作。";
   }
